@@ -2,12 +2,10 @@ import streamlit as st
 import pandas as pd
 import pdfplumber  # For PDF handling
 import time
+import gc  # For memory management
 
 # Function to extract table data from PDF without repeating headers
-
-
 def extract_table_from_pdf(pdf_file):
-    tables = []
     first_page = True
     header = None
 
@@ -26,12 +24,15 @@ def extract_table_from_pdf(pdf_file):
                         # Take the header from the first page
                         header = table[0]
                         # Skip the header row in the first page
-                        tables.extend(table[1:])
+                        yield table[1:], header
                         first_page = False
                     else:
-                        # Just take the data from the subsequent pages (ignore header)
                         # Skip the header row in subsequent pages
-                        tables.extend(table[1:])
+                        yield table[1:], None
+
+                # Free up memory from the processed page
+                del page
+                gc.collect()
 
             # Complete the progress bar
             time.sleep(0.1)
@@ -39,25 +40,19 @@ def extract_table_from_pdf(pdf_file):
 
     except Exception as e:
         st.error(f"An error occurred while processing the PDF: {e}")
-        return None, None
+        return None
 
-    if not tables:
-        st.warning("No tables were found in the PDF.")
-        return None, None
-
-    return header, tables
-
-# Convert extracted table into a DataFrame
-
-
-def convert_to_dataframe(header, table):
+# Convert extracted table into a DataFrame incrementally
+def append_to_dataframe(df, data_chunk, header):
     try:
-        df = pd.DataFrame(table, columns=header)
+        # Create a DataFrame for the current chunk of table data
+        df_chunk = pd.DataFrame(data_chunk, columns=header if header else df.columns)
+        # Append to the main DataFrame
+        df = pd.concat([df, df_chunk], ignore_index=True)
         return df
     except Exception as e:
         st.error(f"An error occurred while converting to DataFrame: {e}")
-        return None
-
+        return df
 
 # Streamlit app interface
 st.title('📄 PDF to CSV Converter 📊')
@@ -69,15 +64,22 @@ uploaded_file = st.file_uploader("📁 Upload a PDF file", type="pdf")
 if uploaded_file is not None:
     st.info("Extracting data from the PDF, please wait...")
 
-    # Extract table from uploaded PDF
-    header, table_data = extract_table_from_pdf(uploaded_file)
+    # Initialize an empty DataFrame
+    df = pd.DataFrame()
 
-    if header and table_data:
-        df = convert_to_dataframe(header, table_data)
+    # Extract table from uploaded PDF in chunks
+    table_generator = extract_table_from_pdf(uploaded_file)
 
-        if df is not None:
+    try:
+        for table_data, header in table_generator:
+            # Append each table chunk to the main DataFrame
+            df = append_to_dataframe(df, table_data, header)
+            # Free up memory for the current chunk
+            gc.collect()
+
+        if not df.empty:
             st.write("✅ Data extraction complete!")
-            st.write(df.head(10))
+            st.write(df)
 
             # Allow user to download CSV
             csv = df.to_csv(index=False).encode('utf-8')
@@ -88,9 +90,10 @@ if uploaded_file is not None:
                 mime='text/csv'
             )
             st.success("CSV file is ready for download!")
-    else:
-        st.warning(
-            "No valid data extracted from the PDF. Please check the file format.")
+        else:
+            st.warning("No valid data extracted from the PDF. Please check the file format.")
+    except Exception as e:
+        st.error(f"An error occurred during processing: {e}")
 
 else:
     st.warning("Please upload a PDF file to continue.")
