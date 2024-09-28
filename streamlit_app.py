@@ -77,7 +77,7 @@ if uploaded_file is not None:
 
         if df is not None:
             st.write("✅ Data extraction complete!")
-            st.write(df)
+            st.write(df.head(10))
 
             # Allow user to download CSV
             csv = df.to_csv(index=False).encode('utf-8')
