@@ -26,7 +26,7 @@ def extract_table_from_pdf(pdf_file):
 
             # Loop through each page of the PDF and extract tables
             for i, page in enumerate(pdf.pages):
-                st.info(f"Processing page {i + 1} of {total_pages}...")
+                # st.info(f"Processing page {i + 1} of {total_pages}...")
                 progress = (i + 1) / total_pages
                 update_progress_bar(progress_bar, progress)
 
